@@ -4,6 +4,18 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/media/info",
+      "destination": "/api/info"
+    },
+    {
+      "source": "/api/media/download",
+      "destination": "/api/download"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
