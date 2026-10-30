@@ -1,0 +1,6 @@
+{
+  "name": "IDM Media Downloader Suite - Architecture & Implementation Hub",
+  "description": "Comprehensive engineering blueprint, architecture explorer, Manifest V3 companion extension generator, and deployment workbench inspired by Internet Download Manager (IDM).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
