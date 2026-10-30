@@ -15,19 +15,18 @@ import {
   Trash2, 
   FolderDown, 
   Play, 
-  Clock, 
   HardDrive, 
-  Settings2,
-  Sparkles
+  Settings2
 } from 'lucide-react';
-import { resolveMediaUrl, downloadRealMedia, ResolvedMedia } from './utils/mediaResolver';
 import { 
-  generatePlayableMedia, 
+  resolveMediaUrl, 
+  downloadRealMedia, 
+  ResolvedMedia, 
   VIDEO_QUALITIES, 
   AUDIO_QUALITIES, 
   QualityOption, 
   AudioQualityOption 
-} from './utils/playableMediaGenerator';
+} from './utils/mediaResolver';
 import { 
   getStoredHistory, 
   saveHistoryItem, 
@@ -60,6 +59,8 @@ export default function App() {
   const [playerModal, setPlayerModal] = useState<{
     isOpen: boolean;
     url: string | null;
+    videoId?: string;
+    platform?: string;
     title: string;
     filename: string;
     isAudio: boolean;
@@ -171,7 +172,8 @@ export default function App() {
         document.body.removeChild(a);
       } else {
         // Direct browser streaming anchor was triggered
-        setLastCompletedBlobUrl(`/api/media/download?url=${encodeURIComponent(currentMedia.sourceUrl)}&mode=${selectedMode}&quality=${qualityLabel}`);
+        const streamUrl = `/api/media/download?url=${encodeURIComponent(currentMedia.sourceUrl)}&mode=${selectedMode}&quality=${qualityLabel}`;
+        setLastCompletedBlobUrl(streamUrl);
       }
 
       setLastCompletedFilename(result.filename);
@@ -191,7 +193,8 @@ export default function App() {
         fileSizeBytes: result.blob.size || 15 * 1024 * 1024,
         date: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
         thumbnail: currentMedia.thumbnail,
-        platform: currentMedia.platform
+        platform: currentMedia.platform,
+        videoId: currentMedia.videoId
       };
 
       saveHistoryItem(historyItem);
@@ -225,17 +228,14 @@ export default function App() {
 
   // Open in-browser player for a history item
   const handlePlayMedia = (item: PersistedDownload) => {
-    let playUrl = blobCache.get(item.id);
-    if (!playUrl) {
-      // If object URL was cleared after refresh, use the source URL if direct, or regenerate preview
-      playUrl = item.sourceUrl.startsWith('http') && (item.sourceUrl.endsWith('.mp4') || item.sourceUrl.endsWith('.mp3'))
-        ? item.sourceUrl
-        : lastCompletedBlobUrl || item.thumbnail;
-    }
+    const playUrl = blobCache.get(item.id) 
+      || `/api/media/download?url=${encodeURIComponent(item.sourceUrl)}&mode=${item.mode}&quality=1080p`;
 
     setPlayerModal({
       isOpen: true,
       url: playUrl,
+      videoId: item.videoId,
+      platform: item.platform,
       title: item.title,
       filename: item.filename,
       isAudio: item.mode === 'audio_only',
@@ -303,7 +303,7 @@ Done! A download button will now float over videos in every tab.
             </div>
             <div>
               <span className="font-bold text-base text-white tracking-tight">Media Downloader</span>
-              <p className="text-[11px] text-slate-400">High-quality video & audio downloader</p>
+              <p className="text-[11px] text-slate-400">Original video & audio stream downloader</p>
             </div>
           </div>
 
@@ -323,10 +323,10 @@ Done! A download button will now float over videos in every tab.
         {/* Hero Title */}
         <div className="text-center space-y-1.5 max-w-xl mx-auto">
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            Download video & audio from any link
+            Download the original video or audio
           </h1>
           <p className="text-sm text-slate-400">
-            Paste any link below, select your desired resolution or bitrate, and save playable media directly to your computer.
+            Paste any link below to stream and save the authentic original video or audio file.
           </p>
         </div>
 
@@ -398,9 +398,14 @@ Done! A download button will now float over videos in every tab.
               </div>
 
               <div className="space-y-1.5 flex-1 min-w-0">
-                <span className="inline-block text-[11px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded font-medium">
-                  {currentMedia.platform}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block text-[11px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded font-medium">
+                    {currentMedia.platform}
+                  </span>
+                  {currentMedia.author && (
+                    <span className="text-xs text-slate-400">by {currentMedia.author}</span>
+                  )}
+                </div>
                 <h3 className="text-base font-semibold text-white leading-snug">
                   {currentMedia.title}
                 </h3>
@@ -419,7 +424,7 @@ Done! A download button will now float over videos in every tab.
                   type="button"
                   onClick={() => setSelectedMode('both')}
                   disabled={isDownloading}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3.5 rounded-xl border text-left transition-all ${
                     selectedMode === 'both'
                       ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm'
                       : 'bg-slate-900 border-slate-700 hover:border-slate-600 text-slate-300'
@@ -432,14 +437,14 @@ Done! A download button will now float over videos in every tab.
                     </div>
                     {selectedMode === 'both' && <Check className="w-3.5 h-3.5 text-blue-400" />}
                   </div>
-                  <p className="text-[11px] text-slate-400">Full playable video with synchronized sound</p>
+                  <p className="text-[11px] text-slate-400">Full original video stream with sound</p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedMode('video_only')}
                   disabled={isDownloading}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3.5 rounded-xl border text-left transition-all ${
                     selectedMode === 'video_only'
                       ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm'
                       : 'bg-slate-900 border-slate-700 hover:border-slate-600 text-slate-300'
@@ -452,14 +457,14 @@ Done! A download button will now float over videos in every tab.
                     </div>
                     {selectedMode === 'video_only' && <Check className="w-3.5 h-3.5 text-blue-400" />}
                   </div>
-                  <p className="text-[11px] text-slate-400">Visuals only, no audio track</p>
+                  <p className="text-[11px] text-slate-400">Original high-fps video track without audio</p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedMode('audio_only')}
                   disabled={isDownloading}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3.5 rounded-xl border text-left transition-all ${
                     selectedMode === 'audio_only'
                       ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm'
                       : 'bg-slate-900 border-slate-700 hover:border-slate-600 text-slate-300'
@@ -472,18 +477,18 @@ Done! A download button will now float over videos in every tab.
                     </div>
                     {selectedMode === 'audio_only' && <Check className="w-3.5 h-3.5 text-blue-400" />}
                   </div>
-                  <p className="text-[11px] text-slate-400">High-fidelity MP3 audio track</p>
+                  <p className="text-[11px] text-slate-400">Pure original audio track extracted to MP3</p>
                 </button>
               </div>
             </div>
 
-            {/* REAL QUALITY SELECTOR (Video Resolution / Audio Bitrate) */}
+            {/* Quality Selector */}
             <div className="space-y-2 pt-2 border-t border-slate-800">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                   <Settings2 className="w-3.5 h-3.5 text-blue-400" />
                   <span>
-                    {selectedMode === 'audio_only' ? 'Select Audio Quality (Bitrate):' : 'Select Video Resolution:'}
+                    {selectedMode === 'audio_only' ? 'Audio Quality (MP3):' : 'Video Resolution:'}
                   </span>
                 </label>
                 <span className="text-[11px] text-blue-400 font-mono">
@@ -492,7 +497,6 @@ Done! A download button will now float over videos in every tab.
               </div>
 
               {selectedMode === 'audio_only' ? (
-                // Audio Bitrate Options (320k, 256k, 128k)
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {AUDIO_QUALITIES.map((aq) => (
                     <button
@@ -519,7 +523,6 @@ Done! A download button will now float over videos in every tab.
                   ))}
                 </div>
               ) : (
-                // Video Resolution Options (1080p, 720p, 480p, 360p)
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {VIDEO_QUALITIES.map((vq) => (
                     <button
@@ -534,40 +537,59 @@ Done! A download button will now float over videos in every tab.
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold">{vq.id.toUpperCase()}</span>
+                        <span className="text-xs font-semibold">{vq.label}</span>
                         <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
                           selectedVideoQuality.id === vq.id ? 'border-blue-400 bg-blue-600' : 'border-slate-600'
                         }`}>
                           {selectedVideoQuality.id === vq.id && <span className="w-1.5 h-1.5 rounded-full bg-white"></span>}
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono">{vq.width}x{vq.height}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Original Stream</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Big Action Download Button */}
-            <div className="pt-2">
+            {/* Action Download & Online Play Buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
               <button
                 onClick={handleDownload}
                 disabled={isDownloading}
-                className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-600 hover:bg-blue-500 active:scale-98 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-lg shadow-blue-600/25 transition-all"
+                className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-blue-600 hover:bg-blue-500 active:scale-98 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-lg shadow-blue-600/25 transition-all"
               >
                 {isDownloading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing & Downloading ({downloadProgress}%)...</span>
+                    <span>Streaming Original Video ({downloadProgress}%)...</span>
                   </>
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
                     <span>
-                      Download {selectedMode === 'audio_only' ? selectedAudioQuality.label : selectedVideoQuality.label} Now
+                      Download Original {selectedMode === 'audio_only' ? 'Audio' : 'Video'} ({selectedMode === 'audio_only' ? selectedAudioQuality.label : selectedVideoQuality.label})
                     </span>
                   </>
                 )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setPlayerModal({
+                    isOpen: true,
+                    url: lastCompletedBlobUrl || `/api/media/download?url=${encodeURIComponent(currentMedia.sourceUrl)}&mode=${selectedMode}&quality=${selectedVideoQuality.id}`,
+                    videoId: currentMedia.videoId,
+                    platform: currentMedia.platform,
+                    title: currentMedia.title,
+                    filename: lastCompletedFilename || `${currentMedia.title}.mp4`,
+                    isAudio: selectedMode === 'audio_only',
+                    qualityLabel: selectedMode === 'audio_only' ? selectedAudioQuality.label : selectedVideoQuality.label
+                  });
+                }}
+                className="flex items-center justify-center gap-2 px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl font-medium text-sm transition-all"
+              >
+                <Play className="w-4 h-4 fill-current text-blue-400" />
+                <span>Play Online</span>
               </button>
             </div>
 
@@ -575,7 +597,7 @@ Done! A download button will now float over videos in every tab.
             {isDownloading && (
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 space-y-2 animate-in fade-in">
                 <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-300">Generating and downloading to your computer...</span>
+                  <span className="text-slate-300">Streaming genuine video stream...</span>
                   <span className="text-blue-400 font-bold">{downloadProgress}% ({downloadSpeed})</span>
                 </div>
                 <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
@@ -587,14 +609,14 @@ Done! A download button will now float over videos in every tab.
               </div>
             )}
 
-            {/* Successful Completion Box + Instant Play Button */}
+            {/* Completion Box */}
             {lastCompletedBlobUrl && (
               <div className="p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-emerald-300 animate-in fade-in">
                 <div className="flex items-center gap-2.5">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                   <div>
                     <div className="font-semibold text-emerald-200">
-                      Successfully downloaded & saved to your computer!
+                      Original video downloaded and saved to your computer!
                     </div>
                     <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                       File: {lastCompletedFilename}
@@ -608,6 +630,8 @@ Done! A download button will now float over videos in every tab.
                       setPlayerModal({
                         isOpen: true,
                         url: lastCompletedBlobUrl,
+                        videoId: currentMedia.videoId,
+                        platform: currentMedia.platform,
                         title: currentMedia.title,
                         filename: lastCompletedFilename,
                         isAudio: selectedMode === 'audio_only',
@@ -617,7 +641,7 @@ Done! A download button will now float over videos in every tab.
                     className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs shadow transition-all"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Play Video in Browser</span>
+                    <span>Watch Video</span>
                   </button>
                 </div>
               </div>
@@ -730,6 +754,8 @@ Done! A download button will now float over videos in every tab.
       {/* In-Browser Media Player Modal */}
       <MediaPlayerModal
         mediaUrl={playerModal.url}
+        videoId={playerModal.videoId}
+        platform={playerModal.platform}
         title={playerModal.title}
         filename={playerModal.filename}
         isAudio={playerModal.isAudio}
@@ -843,7 +869,7 @@ Done! A download button will now float over videos in every tab.
 
       {/* Footer */}
       <footer className="border-t border-slate-800 py-6 text-center text-xs text-slate-500">
-        <p>Media Downloader • Fast, clean video and audio downloads with browser cache history</p>
+        <p>Media Downloader • Stream and save original media</p>
       </footer>
     </div>
   );

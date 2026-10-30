@@ -5,9 +5,33 @@ export interface ResolvedMedia {
   platform: 'YouTube' | 'Facebook' | 'Vimeo' | 'TikTok' | 'Direct Media' | 'Web Stream';
   duration?: string;
   author?: string;
+  videoId?: string;
   directDownloadUrl?: string;
   availableQualities?: string[];
 }
+
+export interface QualityOption {
+  id: string;
+  label: string;
+}
+
+export const VIDEO_QUALITIES: QualityOption[] = [
+  { id: '1080p', label: '1080p Full HD' },
+  { id: '720p', label: '720p HD' },
+  { id: '480p', label: '480p Standard' },
+  { id: '360p', label: '360p Compact' }
+];
+
+export interface AudioQualityOption {
+  id: string;
+  label: string;
+}
+
+export const AUDIO_QUALITIES: AudioQualityOption[] = [
+  { id: '320k', label: '320 kbps (High Quality MP3)' },
+  { id: '256k', label: '256 kbps (Standard MP3)' },
+  { id: '128k', label: '128 kbps (Compact MP3)' }
+];
 
 /**
  * Resolves media information from any URL using the backend extractor or client-side fallback.
@@ -34,14 +58,19 @@ export async function resolveMediaUrl(rawUrl: string): Promise<ResolvedMedia> {
           platform: json.data.platform,
           author: json.data.author,
           duration: json.data.duration,
+          videoId: json.data.videoId,
           availableQualities: json.data.availableVideoQualities?.map((q: any) => q.qualityLabel)
         };
       }
     }
   } catch {}
 
-  // 2. Client-side fallback for YouTube via oEmbed
+  // 2. Client-side fallback for YouTube
   if (lower.includes('youtube.com') || lower.includes('youtu.be')) {
+    const videoId = url.includes('v=') 
+      ? url.split('v=')[1]?.split('&')[0] 
+      : url.split('/').pop()?.split('?')[0];
+
     try {
       const oembedRes = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
       if (oembedRes.ok) {
@@ -49,17 +78,14 @@ export async function resolveMediaUrl(rawUrl: string): Promise<ResolvedMedia> {
         return {
           title: data.title || 'YouTube Video',
           sourceUrl: url,
-          thumbnail: data.thumbnail_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+          thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
           platform: 'YouTube',
           author: data.author_name,
-          duration: '3:45'
+          duration: '3:45',
+          videoId
         };
       }
     } catch {}
-
-    const videoId = url.includes('v=') 
-      ? url.split('v=')[1]?.split('&')[0] 
-      : url.split('/').pop()?.split('?')[0];
 
     return {
       title: videoId ? `YouTube Video (${videoId})` : 'YouTube Video Stream',
@@ -68,29 +94,12 @@ export async function resolveMediaUrl(rawUrl: string): Promise<ResolvedMedia> {
         ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
         : 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
       platform: 'YouTube',
-      duration: '3:30'
+      duration: '3:30',
+      videoId
     };
   }
 
-  // 3. Vimeo via oEmbed
-  if (lower.includes('vimeo.com')) {
-    try {
-      const oembedRes = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`);
-      if (oembedRes.ok) {
-        const data = await oembedRes.json();
-        return {
-          title: data.title || 'Vimeo Video',
-          sourceUrl: url,
-          thumbnail: data.thumbnail_url,
-          platform: 'Vimeo',
-          author: data.author_name,
-          duration: data.duration ? `${Math.floor(data.duration / 60)}:${data.duration % 60}` : '4:20'
-        };
-      }
-    } catch {}
-  }
-
-  // 4. Direct media files
+  // 3. Direct media files (.mp4, .mp3, etc.)
   let cleanName = 'Downloaded Media';
   try {
     const urlObj = new URL(url);
@@ -114,7 +123,7 @@ export async function resolveMediaUrl(rawUrl: string): Promise<ResolvedMedia> {
 }
 
 /**
- * Downloads the ACTUAL, GENUINE original video or audio stream from the link.
+ * Downloads the ACTUAL, ORIGINAL video or audio stream from the link and saves it to disk.
  */
 export async function downloadRealMedia(
   media: ResolvedMedia,
@@ -123,12 +132,12 @@ export async function downloadRealMedia(
   onProgress?: (percent: number, speed: string) => void
 ): Promise<{ blob: Blob; filename: string; mimeType: string }> {
 
-  const cleanBase = media.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'media';
+  const cleanBase = media.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'video';
   const ext = mode === 'audio_only' ? 'mp3' : 'mp4';
   const filename = `${cleanBase}_${quality}.${ext}`;
   const downloadApiUrl = `/api/media/download?url=${encodeURIComponent(media.sourceUrl)}&mode=${mode}&quality=${encodeURIComponent(quality)}`;
 
-  onProgress?.(10, 'Connecting to media server...');
+  onProgress?.(15, 'Starting stream from media servers...');
 
   try {
     const response = await fetch(downloadApiUrl);
@@ -156,9 +165,13 @@ export async function downloadRealMedia(
               const speedStr = speedKbps > 1024 ? `${(speedKbps / 1024).toFixed(1)} MB/s` : `${Math.round(speedKbps)} KB/s`;
               onProgress?.(percent, speedStr);
             } else {
-              // Unknown total length, report transferred megabytes
+              // Unknown chunked transfer length: calculate transferred megabytes
               const mb = (received / (1024 * 1024)).toFixed(1);
-              onProgress?.(50, `${mb} MB transferred`);
+              const elapsedSec = (Date.now() - startTime) / 1000;
+              const speedKbps = elapsedSec > 0 ? (received / 1024) / elapsedSec : 1024;
+              const speedStr = speedKbps > 1024 ? `${(speedKbps / 1024).toFixed(1)} MB/s` : `${Math.round(speedKbps)} KB/s`;
+              const simulatedPct = Math.min(95, 20 + Math.round(received / 150000));
+              onProgress?.(simulatedPct, `${mb} MB (${speedStr})`);
             }
           }
         }
@@ -175,10 +188,10 @@ export async function downloadRealMedia(
       }
     }
   } catch (err) {
-    console.warn('Backend stream fetch failed, trying direct browser anchor trigger:', err);
+    console.warn('Direct stream fetch failed, falling back to browser download anchor:', err);
   }
 
-  // Fallback: trigger native download link through browser
+  // Fallback anchor trigger
   const link = document.createElement('a');
   link.href = downloadApiUrl;
   link.download = filename;

@@ -9,6 +9,7 @@ export interface PersistedDownload {
   date: string;
   thumbnail: string;
   platform: string;
+  videoId?: string;
 }
 
 const STORAGE_KEY = 'media_downloader_history_v1';
@@ -26,7 +27,6 @@ export function getStoredHistory(): PersistedDownload[] {
 export function saveHistoryItem(item: PersistedDownload): void {
   try {
     const existing = getStoredHistory();
-    // Prepend new item and keep up to 50 items
     const updated = [item, ...existing.filter(i => i.id !== item.id)].slice(0, 50);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   } catch (err) {

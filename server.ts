@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import { Ytdl } from '@distube/ytdl-core';
+import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -27,7 +28,7 @@ app.post('/api/media/info', async (req: Request, res: Response) => {
     return;
   }
 
-  const cleanUrl = url.trim();
+  const cleanUrl = String(url).trim();
   const lower = cleanUrl.toLowerCase();
 
   try {
@@ -43,7 +44,6 @@ app.post('/api/media/info', async (req: Request, res: Response) => {
           width: f.width,
           height: f.height,
           fps: f.fps || 30,
-          mimeType: f.mimeType,
           container: f.container || 'mp4',
           hasAudio: f.hasAudio
         }));
@@ -60,11 +60,12 @@ app.post('/api/media/info', async (req: Request, res: Response) => {
 
       const thumbs = [...(details.thumbnails || [])];
       const thumbnail = thumbs[thumbs.length - 1]?.url
-        || `https://img.youtube.com/vi/${(details as any).videoId || (details as any).id || ''}/hqdefault.jpg`;
+        || `https://img.youtube.com/vi/${(details as any).id || (details as any).videoId || ''}/hqdefault.jpg`;
 
       res.json({
         success: true,
         data: {
+          videoId: (details as any).id || (details as any).videoId,
           title: details.title,
           author: details.author?.name || 'Creator',
           duration: `${Math.floor(+details.lengthSeconds / 60)}:${String(+details.lengthSeconds % 60).padStart(2, '0')}`,
@@ -100,7 +101,7 @@ app.post('/api/media/info', async (req: Request, res: Response) => {
       return;
     }
 
-    // 3. Vimeo / Generic via oEmbed
+    // 3. Vimeo via oEmbed
     if (lower.includes('vimeo.com')) {
       const oembedRes = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(cleanUrl)}`);
       if (oembedRes.ok) {
@@ -161,45 +162,116 @@ app.get('/api/media/download', async (req: Request, res: Response) => {
       const info = await ytdl.getInfo(cleanUrl);
       const title = info.videoDetails.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'video';
 
+      // MODE: AUDIO ONLY -> Stream pure audio as real MP3/AAC
       if (mode === 'audio_only') {
         const filename = `${title}.mp3`;
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
         res.setHeader('Content-Type', 'audio/mpeg');
 
-        const stream = ytdl.download(cleanUrl, {
+        const audioStream = ytdl.download(cleanUrl, {
           filter: (f: any) => f.hasAudio && !f.hasVideo,
           quality: 'highestaudio'
         });
-        stream.pipe(res);
+
+        // Transcode audio cleanly to MP3 using ffmpeg
+        const ffmpeg = spawn('ffmpeg', [
+          '-loglevel', 'error',
+          '-i', 'pipe:0',
+          '-vn',
+          '-c:a', 'libmp3lame',
+          '-q:a', '2',
+          '-f', 'mp3',
+          'pipe:1'
+        ]);
+
+        audioStream.pipe(ffmpeg.stdin);
+        ffmpeg.stdout.pipe(res);
+
+        ffmpeg.stderr.on('data', d => console.error('FFmpeg audio stderr:', d.toString()));
+        req.on('close', () => {
+          try { ffmpeg.kill(); } catch {}
+        });
         return;
       }
 
-      // Video + Audio / Video Only
-      const isVideoOnly = mode === 'video_only';
+      // MODE: VIDEO ONLY -> Stream raw high-fps video track as MP4
+      if (mode === 'video_only') {
+        const filename = `${title}_${quality}_video.mp4`;
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        res.setHeader('Content-Type', 'video/mp4');
+
+        const videoStream = ytdl.download(cleanUrl, {
+          filter: (f: any) => f.hasVideo && !f.hasAudio,
+          quality: quality === '1080p' ? 'highestvideo' : 'highest'
+        });
+
+        const ffmpeg = spawn('ffmpeg', [
+          '-loglevel', 'error',
+          '-i', 'pipe:0',
+          '-c:v', 'copy',
+          '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+          '-f', 'mp4',
+          'pipe:1'
+        ]);
+
+        videoStream.pipe(ffmpeg.stdin);
+        ffmpeg.stdout.pipe(res);
+
+        req.on('close', () => {
+          try { ffmpeg.kill(); } catch {}
+        });
+        return;
+      }
+
+      // MODE: VIDEO + AUDIO (COMBINED FULL MUX)
+      // Streams real highest video stream + real highest audio stream, muxed into playable MP4
       const filename = `${title}_${quality}.mp4`;
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
       res.setHeader('Content-Type', 'video/mp4');
 
-      const stream = ytdl.download(cleanUrl, {
-        filter: (f: any) => isVideoOnly ? (f.hasVideo && !f.hasAudio) : (f.hasVideo && f.hasAudio),
+      const videoStream = ytdl.download(cleanUrl, {
+        filter: (f: any) => f.hasVideo && !f.hasAudio,
         quality: quality === '1080p' ? 'highestvideo' : 'highest'
       });
 
-      stream.on('error', (err) => {
-        console.error('YouTube streaming error, falling back to highest available:', err.message);
-        // Fallback to highest available stream
-        if (!res.headersSent) {
-          const fallbackStream = ytdl.download(cleanUrl, { quality: 'highest' });
-          fallbackStream.pipe(res);
-        }
+      const audioStream = ytdl.download(cleanUrl, {
+        filter: (f: any) => f.hasAudio && !f.hasVideo,
+        quality: 'highestaudio'
       });
 
-      stream.pipe(res);
+      const ffmpeg = spawn('ffmpeg', [
+        '-loglevel', 'error',
+        '-i', 'pipe:3',
+        '-i', 'pipe:4',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+        '-f', 'mp4',
+        'pipe:1'
+      ], {
+        stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe']
+      });
+
+      videoStream.pipe(ffmpeg.stdio[3] as any);
+      audioStream.pipe(ffmpeg.stdio[4] as any);
+      ffmpeg.stdout.pipe(res);
+
+      ffmpeg.stderr.on('data', d => console.error('FFmpeg mux stderr:', d.toString()));
+
+      req.on('close', () => {
+        try { ffmpeg.kill(); } catch {}
+      });
       return;
     }
 
-    // 2. Direct Media files: proxy raw stream
-    if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mp3') || lower.endsWith('.m4a') || lower.includes('commondatastorage.googleapis.com')) {
+    // 2. Direct Media files (MP4, WebM, MP3) -> Proxy raw stream directly
+    if (
+      lower.endsWith('.mp4') || 
+      lower.endsWith('.webm') || 
+      lower.endsWith('.mp3') || 
+      lower.endsWith('.m4a') || 
+      lower.includes('commondatastorage.googleapis.com')
+    ) {
       const response = await fetch(cleanUrl);
       if (!response.ok) {
         res.status(400).send('Failed to fetch remote media');
