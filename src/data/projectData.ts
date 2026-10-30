@@ -52,9 +52,9 @@ export const EXTENSION_FILES: CodeFile[] = [
     description: 'Manifest V3 configuration tailored for unpacked side-loading in Edge & Chrome with broad tab injection permissions.',
     content: `{
   "manifest_version": 3,
-  "name": "IDM Media Sniffer Companion",
+  "name": "Media Sniffer Companion",
   "version": "1.0.0",
-  "description": "Detects media streams and provides an IDM-style floating download bar on any webpage.",
+  "description": "Detects media streams and provides a download button on any webpage.",
   "permissions": [
     "activeTab",
     "storage",
@@ -76,7 +76,7 @@ export const EXTENSION_FILES: CodeFile[] = [
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "IDM Stream Sniffer"
+    "default_title": "Media Sniffer"
   }
 }`
   },
@@ -132,22 +132,19 @@ export const EXTENSION_FILES: CodeFile[] = [
         font-size: 12px;
         display: inline-flex;
         align-items: center;
-        background: linear-gradient(180deg, #1e3a8a 0%, #172554 100%);
+        background: #2563eb;
         color: #ffffff;
         border: 1px solid #3b82f6;
-        border-radius: 4px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         cursor: pointer;
-        padding: 4px 8px;
+        padding: 5px 10px;
         gap: 6px;
         user-select: none;
         transition: all 0.2s ease;
-        opacity: 0.92;
       }
       .idm-btn-wrapper:hover {
-        opacity: 1;
-        background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
+        background: #1d4ed8;
       }
       .idm-icon {
         width: 14px;
@@ -171,13 +168,13 @@ export const EXTENSION_FILES: CodeFile[] = [
         display: block;
       }
       .idm-menu-item {
-        padding: 6px 12px;
+        padding: 7px 12px;
         color: #e2e8f0;
-        font-size: 11px;
+        font-size: 12px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        transition: background 0.15s;
+        cursor: pointer;
       }
       .idm-menu-item:hover {
         background: #1e293b;
@@ -190,7 +187,7 @@ export const EXTENSION_FILES: CodeFile[] = [
     btn.className = 'idm-btn-wrapper';
     btn.innerHTML = \`
       <svg class="idm-icon" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-      <span>Download this video</span>
+      <span>Download video</span>
       <span style="font-size:9px; opacity:0.8;">▼</span>
     \`;
 
@@ -198,16 +195,13 @@ export const EXTENSION_FILES: CodeFile[] = [
     menu.className = 'idm-menu';
     menu.innerHTML = \`
       <div class="idm-menu-item" data-mode="both">
-        <span>🎬 Video + Audio (Best)</span>
+        <span>🎬 Video + Audio (MP4)</span>
       </div>
       <div class="idm-menu-item" data-mode="video_only">
-        <span>📹 Video Only (High-FPS)</span>
+        <span>📹 Video Only</span>
       </div>
       <div class="idm-menu-item" data-mode="audio_only">
-        <span>🎵 Audio Only (MP3/M4A)</span>
-      </div>
-      <div class="idm-menu-item" data-mode="open_app" style="border-top: 1px solid #1e293b; color: #94a3b8;">
-        <span>🚀 Open in IDM Suite App</span>
+        <span>🎵 Audio Only (MP3)</span>
       </div>
     \`;
 
